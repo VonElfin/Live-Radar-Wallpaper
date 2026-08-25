@@ -1,0 +1,188 @@
+{
+  "file": "index.html",
+  "type": "web",
+  "title": "ADS-B Live Radar",
+  "description": "Radar aereo ao vivo estilo ATC, alimentado por dados publicos ADS-B. Mostra aeronaves reais perto da localizacao configurada, com varredura de radar, aneis de alcance, HUD de contatos, rastreamento de alvos e relogio. Clique em uma aeronave para focar e acompanhar.",
+  "preview": "preview.jpg",
+  "contentrating": "Everyone",
+  "tags": [
+    "Technology"
+  ],
+  "visibility": "public",
+  "general": {
+    "properties": {
+      "headerlocation": {
+        "order": 100,
+        "text": "<b>- Location -</b>"
+      },
+      "latitude": {
+        "order": 101,
+        "text": "Latitude",
+        "type": "textinput",
+        "value": "-22.908"
+      },
+      "longitude": {
+        "order": 102,
+        "text": "Longitude",
+        "type": "textinput",
+        "value": "-43.196"
+      },
+      "radius": {
+        "order": 103,
+        "text": "Radius (km)",
+        "type": "slider",
+        "value": 400,
+        "min": 50,
+        "max": 450
+      },
+      "headerhud": {
+        "order": 200,
+        "text": "<br><b>- HUD -</b>"
+      },
+      "hud": {
+        "order": 201,
+        "text": "Show HUD",
+        "type": "bool",
+        "value": true
+      },
+      "clock": {
+        "order": 202,
+        "text": "Show Clock",
+        "type": "bool",
+        "value": true
+      },
+      "format24h": {
+        "order": 203,
+        "text": "24 Hour Clock",
+        "type": "bool",
+        "value": true
+      },
+      "utcoffset": {
+        "order": 204,
+        "text": "UTC Offset",
+        "type": "slider",
+        "value": 1,
+        "min": -12,
+        "max": 14
+      },
+      "headerfilters": {
+        "order": 300,
+        "text": "<br><b>- Filters -</b>"
+      },
+      "minalt": {
+        "order": 301,
+        "text": "Min Altitude (ft)",
+        "type": "slider",
+        "value": 0,
+        "min": 0,
+        "max": 60000
+      },
+      "maxalt": {
+        "order": 302,
+        "text": "Max Altitude (ft)",
+        "type": "slider",
+        "value": 50000,
+        "min": 0,
+        "max": 60000
+      },
+      "minspeed": {
+        "order": 303,
+        "text": "Min Speed (kts)",
+        "type": "slider",
+        "value": 0,
+        "min": 0,
+        "max": 1300
+      },
+      "maxspeed": {
+        "order": 304,
+        "text": "Max Speed (kts)",
+        "type": "slider",
+        "value": 1300,
+        "min": 0,
+        "max": 1300
+      },
+      "headerdisplay": {
+        "order": 400,
+        "text": "<br><b>- Display -</b>"
+      },
+      "radarspeed": {
+        "order": 401,
+        "text": "Radar Speed (RPM)",
+        "type": "slider",
+        "value": 25,
+        "min": 1,
+        "max": 60
+      },
+      "showlabels": {
+        "order": 402,
+        "text": "Show Labels",
+        "type": "bool",
+        "value": true
+      },
+      "showvectors": {
+        "order": 403,
+        "text": "Show Vectors",
+        "type": "bool",
+        "value": true
+      },
+      "showrings": {
+        "order": 404,
+        "text": "Show Rings",
+        "type": "bool",
+        "value": true
+      },
+      "showmap": {
+        "order": 405,
+        "text": "Show Map",
+        "type": "bool",
+        "value": true
+      },
+      "maplabels": {
+        "order": 406,
+        "text": "Map City Labels",
+        "type": "bool",
+        "value": true
+      },
+      "headerlayout": {
+        "order": 500,
+        "text": "<br><b>- Layout -</b>"
+      },
+      "autozoom": {
+        "order": 501,
+        "text": "Auto Zoom",
+        "type": "bool",
+        "value": true
+      },
+      "zoomoffset": {
+        "order": 502,
+        "text": "Zoom Offset",
+        "type": "slider",
+        "value": 0,
+        "min": -4,
+        "max": 4
+      },
+      "uiscale": {
+        "order": 503,
+        "text": "UI Scale (%)",
+        "type": "slider",
+        "value": 100,
+        "min": 50,
+        "max": 250
+      },
+      "bottommargin": {
+        "order": 504,
+        "text": "Taskbar Clearance (px)",
+        "type": "slider",
+        "value": 60,
+        "min": 0,
+        "max": 300
+      },
+      "showbuttons": {
+        "order": 505,
+        "text": "Show Buttons",
+        "type": "bool",
+        "value": true
+      }
+    }
+  }
+}

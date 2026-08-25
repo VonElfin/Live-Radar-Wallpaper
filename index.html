@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>ADS-B Live Radar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div id="map"></div>
+  <canvas id="overlay"></canvas>
+
+  <div id="hud-info" class="panel">
+    <div class="panel-title"><span class="bolt">&#9889;</span> RADAR: <span id="radar-status">LIVE</span></div>
+    <div class="hud-row"><span>AZIMUTH:</span><span id="hud-azimuth">0&deg;</span></div>
+    <div class="hud-row"><span>CONTACTS:</span><span id="hud-contacts">0</span></div>
+    <div class="hud-row emergency-row"><span>EMERGENCY:</span><span id="hud-emergency">0</span></div>
+    <div class="hud-row"><span>UNKNOWNS:</span><span id="hud-unknowns">0</span></div>
+    <div class="hud-row"><span>FILTERED:</span><span id="hud-filtered">0</span></div>
+    <div class="hud-row"><span>RANGE:</span><span id="hud-range">400<i>km</i></span></div>
+    <div class="hud-row"><span>LATENCY:</span><span id="hud-latency">--<i>ms</i></span></div>
+    <div class="panel-footer">Data: <span id="hud-source">ADSB.one</span></div>
+  </div>
+
+  <div id="hud-tracks" class="panel">
+    <div class="panel-title"><span class="pin">&#128205;</span> TRACKS</div>
+    <div id="track-detail" class="hidden"></div>
+    <div id="tracks-list" class="tracks-empty">click an aircraft to track</div>
+  </div>
+
+  <div id="hud-clock" class="panel">
+    <div id="clock-time">00 00 00</div>
+    <div id="clock-date">--</div>
+    <div id="clock-tz">UTC+0</div>
+  </div>
+
+  <div id="hud-buttons">
+    <div class="btn-group">
+      <button id="btn-zoomin" class="tbtn" title="Zoom in"><span class="glyph">+</span></button>
+      <button id="btn-zoomout" class="tbtn" title="Zoom out"><span class="glyph">&minus;</span></button>
+    </div>
+    <button id="btn-follow" class="tbtn wide" title="Follow selected target">
+      <span class="glyph">&#9678;</span><span class="lbl">FOLLOW</span>
+    </button>
+    <button id="btn-reset" class="tbtn wide" title="Reset view to home">
+      <span class="glyph">&#9723;</span><span class="lbl">RESET</span>
+    </button>
+    <button id="btn-clear" class="tbtn wide" title="Clear tracked targets">
+      <span class="glyph">&#10005;</span><span class="lbl">CLEAR</span>
+    </button>
+  </div>
+
+  <div id="toast" class="hidden"></div>
+  <div id="tooltip" class="hidden"></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/radar.js"></script>
+</body>
+</html>
