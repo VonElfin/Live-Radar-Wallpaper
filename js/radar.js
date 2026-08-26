@@ -7,16 +7,28 @@
   // only rotate when a request actually fails, so one provider rate-limiting
   // us doesn't turn into a stampede across all three.
   // -------------------------------------------------------------------
+  // Every one of these is a separate volunteer receiver network with worldwide
+  // but uneven coverage - a plane one of them misses another often has. We query
+  // them together and merge by ICAO hex instead of failing over between them.
+  // (airplanes.live is deliberately absent: its API requires prior written
+  // permission, so shipping it in a public wallpaper would abuse their service.)
   var PROVIDERS = [
-    { name: 'ADSB.one', url: function (lat, lon, nm) { return 'https://api.adsb.one/v2/point/' + lat + '/' + lon + '/' + nm; } },
+    { name: 'adsb.one', url: function (lat, lon, nm) { return 'https://api.adsb.one/v2/point/' + lat + '/' + lon + '/' + nm; } },
     { name: 'adsb.lol', url: function (lat, lon, nm) { return 'https://api.adsb.lol/v2/point/' + lat + '/' + lon + '/' + nm; } },
-    { name: 'adsb.fi', url: function (lat, lon, nm) { return 'https://opendata.adsb.fi/api/v2/point/' + lat + '/' + lon + '/' + nm; } }
+    { name: 'adsb.fi', url: function (lat, lon, nm) { return 'https://opendata.adsb.fi/api/v2/lat/' + lat + '/lon/' + lon + '/dist/' + nm; } }
   ];
-  var providerIndex = 0;
   var FETCH_INTERVAL = 3000;   // ms, comfortably under the ~1 req/s limits
   var REQUEST_TIMEOUT = 8000;  // ms before we give up on a hung request
   var STALE_AFTER = 12000;     // ms without fresh data -> flag the HUD
   var DROP_AFTER = 90000;      // ms without fresh data -> stop drawing ghosts
+  // A contact survives this long after its last sighting. Providers drop in and
+  // out constantly (rate limits, feeder gaps); without this grace window an
+  // aircraft only one network can see blinks out every time that one hiccups.
+  var CONTACT_TTL = 25000;
+  // Both cooldowns stay under CONTACT_TTL on purpose: a rested network is
+  // retried before the aircraft only it can see age out of the pool.
+  var COOLDOWN_RATELIMIT = 20000;
+  var COOLDOWN_ERROR = 10000;
   var EMERGENCY_SQUAWKS = { '7500': 1, '7600': 1, '7700': 1 };
   var TRACKS_MAX = 6;
 
@@ -34,10 +46,15 @@
   // hex -> timestamp of the last beam hit. Kept outside the aircraft objects
   // because every fetch replaces those wholesale, which would reset the glow.
   var litAt = Object.create(null);
-  var lastRawData = null;
+  // hex -> latest known record for that aircraft, pooled across providers AND
+  // across polls so a single missed reply can't erase anyone.
+  var contacts = Object.create(null);
+  var providerCooldown = Object.create(null);
+  var lastSources = [];
   var lastGoodAt = 0;
-  var currentSource = PROVIDERS[0].name;
   var haveData = false;
+  var fetchGen = 0;            // bumped on every poll so stale replies can't land
+  var locationTimer = null;
 
   var LABEL_NEVER = 0, LABEL_HOVER = 1, LABEL_ALWAYS = 2;
   var REVEAL_SWEEP = 1;
@@ -205,10 +222,22 @@
     map.setView([CONFIG.latitude, CONFIG.longitude], computeHomeZoom(), { animate: false });
   }
 
+  // The lat/lon boxes emit a property update on every keystroke and the radius
+  // slider on every drag step, so settle first instead of firing a poll per
+  // character and getting rate-limited by the providers.
   function onLocationChanged() {
+    // The old area's contacts are wrong the instant the coordinates move, so
+    // drop them on the first keystroke rather than after the debounce.
+    if (!locationTimer) clearContacts('ACQUIRING');
+    clearTimeout(locationTimer);
+    locationTimer = setTimeout(commitLocation, 400);
+  }
+
+  function commitLocation() {
+    locationTimer = null;
     if (!manualView) applyHomeView();
     updateStaticHud();
-    fetchOnce();
+    scheduleFetchLoop();
   }
 
   // ------------------------------- drawing -------------------------------
@@ -435,25 +464,73 @@
     return ac;
   }
 
-  function onData(data, sourceName, latencyMs) {
-    lastRawData = data;
-    currentSource = sourceName;
+  // The networks disagree on the array's name: adsb.one and adsb.lol return
+  // "ac", adsb.fi returns "aircraft". Reading only "ac" silently treated every
+  // adsb.fi reply as an empty sky.
+  function aircraftOf(data) {
+    if (!data) return [];
+    if (Array.isArray(data.ac)) return data.ac;
+    if (Array.isArray(data.aircraft)) return data.aircraft;
+    return [];
+  }
+
+  // Same aircraft seen by several networks: keep the record with an actual
+  // position, and among those the most recently received fix.
+  function betterRecord(a, b) {
+    var aPos = typeof a.lat === 'number', bPos = typeof b.lat === 'number';
+    if (aPos !== bPos) return aPos;
+    var aSeen = (a.seen == null) ? 1e9 : a.seen;
+    var bSeen = (b.seen == null) ? 1e9 : b.seen;
+    return aSeen < bSeen;
+  }
+
+  // Fold this poll's replies into the rolling contact pool, then expire anyone
+  // nobody has reported for a while.
+  function ingest(results, nowMs) {
+    var sources = [];
+
+    results.forEach(function (r) {
+      sources.push(r.name);
+      aircraftOf(r.data).forEach(function (ac) {
+        if (!ac || !ac.hex) return;
+        var prev = contacts[ac.hex];
+
+        if (prev && prev._pollAt === nowMs) {
+          // two networks reported it in this same poll - keep the better fix
+          if (!betterRecord(ac, prev)) return;
+        } else if (prev && typeof ac.lat !== 'number' && typeof prev.lat === 'number') {
+          // positionless update: refresh the timer but hang on to the last fix
+          prev._seenAt = nowMs;
+          return;
+        }
+
+        ac._pollAt = nowMs;
+        ac._seenAt = nowMs;
+        contacts[ac.hex] = ac;
+      });
+    });
+
+    Object.keys(contacts).forEach(function (hex) {
+      if (nowMs - contacts[hex]._seenAt > CONTACT_TTL) {
+        delete contacts[hex];
+        delete litAt[hex];
+      }
+    });
+
+    return sources;
+  }
+
+  function onData(sources, latencyMs) {
+    lastSources = sources;
     lastGoodAt = Date.now();
     haveData = true;
 
-    var raw = (data && data.ac) || [];
+    var raw = Object.keys(contacts).map(function (k) { return contacts[k]; });
     raw.forEach(classify);
 
     var withPos = raw.filter(function (ac) { return ac._hasPos; });
     var rendered = withPos.filter(function (ac) { return ac._pass; });
     lastAircraft = rendered;
-
-    // drop glow timestamps for contacts that left the area
-    var present = Object.create(null);
-    rendered.forEach(function (ac) { present[ac.hex] = 1; });
-    Object.keys(litAt).forEach(function (hex) {
-      if (!present[hex]) delete litAt[hex];
-    });
 
     $('hud-contacts').textContent = rendered.length;
     $('hud-unknowns').textContent = rendered.filter(function (a) { return a._unknown; }).length;
@@ -464,7 +541,9 @@
     $('hud-emergency').classList.toggle('active', emergency > 0);
 
     if (latencyMs != null) $('hud-latency').innerHTML = latencyMs + '<i>ms</i>';
-    $('hud-source').textContent = sourceName;
+    $('hud-source').textContent = sources.length > 1
+      ? sources.length + ' of ' + activeProviderCount() + ' nets'
+      : (sources[0] || '--');
     setStatus('LIVE', '');
 
     refreshTracks();
@@ -486,22 +565,51 @@
     var age = Date.now() - lastGoodAt;
     if (age > DROP_AFTER) {
       // contacts this old are fiction - drop them rather than draw ghosts
-      lastAircraft = [];
-      haveData = false;
-      setStatus('NO SIGNAL', 'down');
-      ['hud-contacts', 'hud-unknowns', 'hud-filtered', 'hud-emergency'].forEach(function (id) {
-        $(id).textContent = '0';
-      });
-      $('hud-emergency').classList.remove('active');
-      $('hud-latency').innerHTML = '--<i>ms</i>';
-      refreshTracks();
+      clearContacts('NO SIGNAL', 'down');
     } else if (age > STALE_AFTER) {
       setStatus('STALE ' + Math.round(age / 1000) + 's', 'stale');
     }
   }
 
   function reFilterFromCache() {
-    if (lastRawData) onData(lastRawData, currentSource, null);
+    if (haveData) onData(lastSources, null);
+  }
+
+  function selectedProviders() {
+    var pick = PROVIDERS[CONFIG.sourcemode - 1];
+    return pick ? [pick] : PROVIDERS;
+  }
+  function activeProviderCount() { return selectedProviders().length; }
+
+  // A network that just rate-limited us gets rested rather than hammered every
+  // 3 seconds - but we never let the list go empty.
+  function activeProviders() {
+    var now = Date.now();
+    var all = selectedProviders();
+    var ready = all.filter(function (p) { return !(providerCooldown[p.name] > now); });
+    return ready.length ? ready : all;
+  }
+
+  function benchProvider(name, status) {
+    providerCooldown[name] = Date.now() +
+      (status === 429 ? COOLDOWN_RATELIMIT : COOLDOWN_ERROR);
+  }
+
+  // Wipe the board right away. Without this the previous location's contacts
+  // keep blinking under the sweep until the first poll for the new spot lands.
+  function clearContacts(statusText, statusClass) {
+    lastAircraft = [];
+    contacts = Object.create(null);
+    litAt = Object.create(null);
+    lastSources = [];
+    haveData = false;
+    ['hud-contacts', 'hud-unknowns', 'hud-filtered', 'hud-emergency'].forEach(function (id) {
+      $(id).textContent = '0';
+    });
+    $('hud-emergency').classList.remove('active');
+    $('hud-latency').innerHTML = '--<i>ms</i>';
+    setStatus(statusText, statusClass || 'stale');
+    refreshTracks();
   }
 
   function fetchWithTimeout(url) {
@@ -513,28 +621,30 @@
   }
 
   async function fetchOnce() {
+    var gen = ++fetchGen;
     var lat = Number(CONFIG.latitude).toFixed(4);
     var lon = Number(CONFIG.longitude).toFixed(4);
     var nm = clamp(Math.round(CONFIG.radius / 1.852), 5, 250);
+    var t0 = performance.now();
 
-    // While we already have contacts, poke only the provider that works. On a
-    // cold start (or after everything died) sweep the list to find a live one.
-    var attempts = haveData ? 1 : PROVIDERS.length;
+    // All providers in parallel; a slow or dead one costs us nothing but itself.
+    var settled = await Promise.all(activeProviders().map(function (p) {
+      return fetchWithTimeout(p.url(lat, lon, nm))
+        .then(function (res) {
+          if (!res.ok) { benchProvider(p.name, res.status); return null; }
+          return res.json().then(function (data) { return { name: p.name, data: data }; });
+        })
+        .catch(function () { benchProvider(p.name, 0); return null; });
+    }));
 
-    for (var i = 0; i < attempts; i++) {
-      var provider = PROVIDERS[providerIndex];
-      var t0 = performance.now();
-      try {
-        var res = await fetchWithTimeout(provider.url(lat, lon, nm));
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        var data = await res.json();
-        onData(data, provider.name, Math.round(performance.now() - t0));
-        return;
-      } catch (err) {
-        providerIndex = (providerIndex + 1) % PROVIDERS.length;
-      }
-    }
-    onFetchFailed();
+    // A newer poll (usually a location change) started while we were waiting -
+    // its answer is the current one, so drop this now-stale batch.
+    if (gen !== fetchGen) return;
+
+    var ok = settled.filter(Boolean);
+    if (!ok.length) { onFetchFailed(); return; }
+
+    onData(ingest(ok, Date.now()), Math.round(performance.now() - t0));
   }
 
   function scheduleFetchLoop() {
@@ -776,6 +886,10 @@
     });
     ['minalt', 'maxalt', 'minspeed', 'maxspeed'].forEach(function (k) {
       onConfigChange(k, reFilterFromCache);
+    });
+    onConfigChange('sourcemode', function () {
+      clearContacts('ACQUIRING');
+      scheduleFetchLoop();
     });
 
     onConfigChange('maplabels', setTileLayer);

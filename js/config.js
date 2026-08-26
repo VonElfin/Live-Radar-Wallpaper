@@ -7,6 +7,7 @@ var CONFIG = {
   latitude: -22.908,
   longitude: -43.196,
   radius: 400,          // km
+  sourcemode: 0,        // 0 = merge every provider, 1..n = force just that one
 
   hud: true,
   clock: true,
@@ -39,7 +40,7 @@ var CONFIG = {
 var INT_KEYS = {
   utcoffset: 1, minalt: 1, maxalt: 1, minspeed: 1, maxspeed: 1,
   radius: 1, radarspeed: 1, zoomoffset: 1, uiscale: 1, bottommargin: 1,
-  labelmode: 1, revealmode: 1, blippersist: 1
+  labelmode: 1, revealmode: 1, blippersist: 1, sourcemode: 1
 };
 
 var CONFIG_LISTENERS = {};

@@ -35,6 +35,18 @@
         "min": 50,
         "max": 450
       },
+      "sourcemode": {
+        "order": 104,
+        "text": "Data Source",
+        "type": "combo",
+        "value": 0,
+        "options": [
+          { "label": "All Networks (merged)", "value": 0 },
+          { "label": "adsb.one only", "value": 1 },
+          { "label": "adsb.lol only", "value": 2 },
+          { "label": "adsb.fi only", "value": 3 }
+        ]
+      },
       "headerhud": {
         "order": 200,
         "text": "<br><b>- HUD -</b>"
@@ -149,25 +161,25 @@
         ]
       },
       "showvectors": {
-        "order": 403,
+        "order": 405,
         "text": "Show Vectors",
         "type": "bool",
         "value": true
       },
       "showrings": {
-        "order": 404,
+        "order": 406,
         "text": "Show Rings",
         "type": "bool",
         "value": true
       },
       "showmap": {
-        "order": 405,
+        "order": 407,
         "text": "Show Map",
         "type": "bool",
         "value": true
       },
       "maplabels": {
-        "order": 406,
+        "order": 408,
         "text": "Map City Labels",
         "type": "bool",
         "value": true
