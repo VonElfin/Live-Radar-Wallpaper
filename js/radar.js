@@ -31,13 +31,20 @@
   var lastTs = null;
 
   var lastAircraft = [];       // contacts currently drawn, each carries ._pt
+  // hex -> timestamp of the last beam hit. Kept outside the aircraft objects
+  // because every fetch replaces those wholesale, which would reset the glow.
+  var litAt = Object.create(null);
   var lastRawData = null;
   var lastGoodAt = 0;
   var currentSource = PROVIDERS[0].name;
   var haveData = false;
 
+  var LABEL_NEVER = 0, LABEL_HOVER = 1, LABEL_ALWAYS = 2;
+  var REVEAL_SWEEP = 1;
+
   var tracks = [];             // pinned targets shown in the TRACKS panel
   var selectedHex = null;
+  var hoveredHex = null;
   var followMode = false;
   var manualView = false;      // user drove the view; stop auto-recentering
   var fetchTimer = null;
@@ -170,6 +177,10 @@
     map.on('dragstart', function () { manualView = true; });
     map.on('click', handleMapClick);
     map.on('mousemove', handleMapHover);
+    map.on('mouseout', function () {
+      hoveredHex = null;
+      $('tooltip').classList.add('hidden');
+    });
   }
 
   function setTileLayer() {
@@ -206,6 +217,7 @@
     var dt = (ts - lastTs) / 1000;
     lastTs = ts;
 
+    var prevSweep = sweepAngle;
     sweepAngle = (sweepAngle + CONFIG.radarspeed * 6 * dt) % 360;
 
     ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
@@ -217,7 +229,7 @@
     drawSweep(homePt, outerRingPx);
     if (CONFIG.showrings) drawRings(homePt, outerRingPx);
     drawHomeMark(homePt);
-    drawAircraft();
+    drawAircraft(homePt, ts, prevSweep);
 
     $('hud-azimuth').textContent = Math.round(sweepAngle) + '°';
     requestAnimationFrame(draw);
@@ -283,9 +295,26 @@
     ctx.restore();
   }
 
-  function drawAircraft() {
+  // Did the beam pass over `ang` between the previous frame and this one?
+  // The sweep wraps 360 -> 0, so that case is the arc split in two.
+  function sweptPast(ang, prev, cur) {
+    if (cur >= prev) return ang > prev && ang <= cur;
+    return ang > prev || ang <= cur;
+  }
+
+  // Screen-space angle of a contact measured from the radar origin, in the same
+  // convention the beam is drawn with (0 = +x, growing clockwise).
+  function screenAngle(homePt, pt) {
+    var a = Math.atan2(pt.y - homePt.y, pt.x - homePt.x) * 180 / Math.PI;
+    return (a + 360) % 360;
+  }
+
+  function drawAircraft(homePt, nowTs, prevSweep) {
     var w = window.innerWidth, h = window.innerHeight;
     var margin = 60 * scale;
+    var sweepReveal = CONFIG.revealmode === REVEAL_SWEEP;
+    // a contact stays lit for this long after the beam hits it
+    var fadeMs = (60000 / CONFIG.radarspeed) * (CONFIG.blippersist / 100);
 
     lastAircraft.forEach(function (ac) {
       var pt = map.latLngToContainerPoint(L.latLng(ac.lat, ac.lon));
@@ -293,6 +322,23 @@
       if (pt.x < -margin || pt.y < -margin || pt.x > w + margin || pt.y > h + margin) return;
 
       var isSel = (ac.hex === selectedHex);
+      var isHov = (ac.hex === hoveredHex);
+
+      if (sweptPast(screenAngle(homePt, pt), prevSweep, sweepAngle)) litAt[ac.hex] = nowTs;
+
+      // Phosphor persistence: full brightness at the moment of the hit, decaying
+      // to nothing by the time the beam comes back around.
+      var alpha = 1;
+      if (sweepReveal) {
+        var lit = litAt[ac.hex];
+        var age = (lit == null) ? Infinity : nowTs - lit;
+        alpha = age >= fadeMs ? 0 : Math.pow(1 - age / fadeMs, 1.1);
+        // things you're actively watching shouldn't blink out on you
+        if (isSel || isHov) alpha = 1;
+        else if (ac._emergency) alpha = Math.max(alpha, 0.55);
+        if (alpha <= 0.01) return;
+      }
+
       var color = ac._emergency ? '#ff3b3b' : (ac._unknown ? '#9aa0a6' : '#37e07a');
       if (isSel) color = '#8dffc0';
       var heading = (typeof ac.track === 'number') ? ac.track : 0;
@@ -304,7 +350,7 @@
         var rad = heading * Math.PI / 180;
         ctx.save();
         ctx.strokeStyle = color;
-        ctx.globalAlpha = isSel ? 0.9 : 0.55;
+        ctx.globalAlpha = (isSel ? 0.9 : 0.55) * alpha;
         ctx.lineWidth = (isSel ? 1.6 : 1) * scale;
         ctx.beginPath();
         ctx.moveTo(pt.x, pt.y);
@@ -315,6 +361,7 @@
 
       var size = (isSel ? 7.5 : 6) * scale;
       ctx.save();
+      ctx.globalAlpha = alpha;
       ctx.translate(pt.x, pt.y);
       ctx.rotate(heading * Math.PI / 180);
       ctx.fillStyle = color;
@@ -328,15 +375,21 @@
       ctx.fill();
       ctx.restore();
 
-      if (CONFIG.showlabels || isSel) {
+      // In sweep mode the readout rides along with the blip, so the data shows
+      // up exactly when the beam paints the contact and fades out with it.
+      var showLabel = isSel ||
+        CONFIG.labelmode === LABEL_ALWAYS ||
+        (CONFIG.labelmode === LABEL_HOVER && (isHov || ac._emergency));
+
+      if (showLabel) {
         var dx = 9 * scale;
         ctx.save();
+        ctx.globalAlpha = alpha;
         ctx.font = 'bold ' + (10 * scale).toFixed(1) + 'px Consolas, monospace';
         ctx.fillStyle = color;
-        ctx.globalAlpha = 0.95;
         ctx.fillText(ac._unknown ? 'UNKN' : callsignOf(ac), pt.x + dx, pt.y - 4 * scale);
         ctx.font = (10 * scale).toFixed(1) + 'px Consolas, monospace';
-        ctx.fillStyle = 'rgba(150,255,190,0.75)';
+        ctx.fillStyle = 'rgba(150,255,190,0.78)';
         ctx.fillText(altLabel(ac) + (ac.gs ? ' · ' + Math.round(ac.gs) + 'kt' : ''), pt.x + dx, pt.y + 7 * scale);
         ctx.restore();
       }
@@ -394,6 +447,13 @@
     var withPos = raw.filter(function (ac) { return ac._hasPos; });
     var rendered = withPos.filter(function (ac) { return ac._pass; });
     lastAircraft = rendered;
+
+    // drop glow timestamps for contacts that left the area
+    var present = Object.create(null);
+    rendered.forEach(function (ac) { present[ac.hex] = 1; });
+    Object.keys(litAt).forEach(function (hex) {
+      if (!present[hex]) delete litAt[hex];
+    });
 
     $('hud-contacts').textContent = rendered.length;
     $('hud-unknowns').textContent = rendered.filter(function (a) { return a._unknown; }).length;
@@ -596,8 +656,12 @@
   function handleMapHover(e) {
     var ac = nearestAircraft(e.containerPoint, 16);
     var tooltip = $('tooltip');
+    hoveredHex = ac ? ac.hex : null;
     map.getContainer().style.cursor = ac ? 'pointer' : '';
-    if (!ac) { tooltip.classList.add('hidden'); return; }
+
+    // In hover mode the canvas label is already the reveal, so the tooltip
+    // would just repeat it next to itself.
+    if (!ac || CONFIG.labelmode === LABEL_HOVER) { tooltip.classList.add('hidden'); return; }
 
     tooltip.classList.remove('hidden');
     tooltip.style.left = e.containerPoint.x + 'px';

@@ -119,11 +119,34 @@
         "min": 1,
         "max": 60
       },
-      "showlabels": {
+      "revealmode": {
         "order": 402,
-        "text": "Show Labels",
-        "type": "bool",
-        "value": true
+        "text": "Contact Reveal",
+        "type": "combo",
+        "value": 1,
+        "options": [
+          { "label": "Lit By Radar Sweep", "value": 1 },
+          { "label": "Always Visible", "value": 0 }
+        ]
+      },
+      "blippersist": {
+        "order": 403,
+        "text": "Blip Persistence (%)",
+        "type": "slider",
+        "value": 100,
+        "min": 10,
+        "max": 300
+      },
+      "labelmode": {
+        "order": 404,
+        "text": "Aircraft Labels",
+        "type": "combo",
+        "value": 2,
+        "options": [
+          { "label": "Always Show", "value": 2 },
+          { "label": "On Hover Only", "value": 1 },
+          { "label": "Never (selected only)", "value": 0 }
+        ]
       },
       "showvectors": {
         "order": 403,

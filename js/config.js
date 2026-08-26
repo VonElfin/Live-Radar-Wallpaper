@@ -20,7 +20,9 @@ var CONFIG = {
   maxspeed: 1300,
 
   radarspeed: 25,       // RPM
-  showlabels: true,
+  revealmode: 1,        // 0 = always visible, 1 = lit by the radar sweep
+  blippersist: 100,     // how long a blip stays lit, as % of one revolution
+  labelmode: 2,         // 0 = never, 1 = on hover, 2 = always
   showvectors: true,
   showrings: true,
   showmap: true,
@@ -36,7 +38,8 @@ var CONFIG = {
 // Keys Wallpaper Engine hands us as floats but that only make sense as integers.
 var INT_KEYS = {
   utcoffset: 1, minalt: 1, maxalt: 1, minspeed: 1, maxspeed: 1,
-  radius: 1, radarspeed: 1, zoomoffset: 1, uiscale: 1, bottommargin: 1
+  radius: 1, radarspeed: 1, zoomoffset: 1, uiscale: 1, bottommargin: 1,
+  labelmode: 1, revealmode: 1, blippersist: 1
 };
 
 var CONFIG_LISTENERS = {};
