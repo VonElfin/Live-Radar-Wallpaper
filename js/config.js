@@ -10,8 +10,9 @@ var CONFIG = {
 
   hud: true,
   clock: true,
+  usesystemtime: true,  // when true the PC clock wins and utcoffset is ignored
   format24h: true,
-  utcoffset: 1,
+  utcoffset: 0,
 
   minalt: 0,
   maxalt: 50000,

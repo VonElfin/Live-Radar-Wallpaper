@@ -51,17 +51,23 @@
         "type": "bool",
         "value": true
       },
-      "format24h": {
+      "usesystemtime": {
         "order": 203,
+        "text": "Use PC Time",
+        "type": "bool",
+        "value": true
+      },
+      "format24h": {
+        "order": 204,
         "text": "24 Hour Clock",
         "type": "bool",
         "value": true
       },
       "utcoffset": {
-        "order": 204,
-        "text": "UTC Offset",
+        "order": 205,
+        "text": "UTC Offset (if PC Time off)",
         "type": "slider",
-        "value": 1,
+        "value": 0,
         "min": -12,
         "max": 14
       },

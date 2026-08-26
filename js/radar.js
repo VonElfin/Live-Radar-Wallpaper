@@ -655,19 +655,39 @@
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
     'August', 'September', 'October', 'November', 'December'];
 
+  function offsetLabel(hours) {
+    var sign = hours < 0 ? '-' : '+';
+    var abs = Math.abs(hours);
+    var whole = Math.floor(abs);
+    var mins = Math.round((abs - whole) * 60);
+    return 'UTC' + sign + whole + (mins ? ':' + pad(mins) : '');
+  }
+
   function updateClock() {
     var now = new Date();
-    var local = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + CONFIG.utcoffset * 3600000);
-    var h = local.getUTCHours(), suffix = '';
+    var h, mi, se, dow, dom, mon, yr, tz;
 
+    if (CONFIG.usesystemtime) {
+      // read the PC clock straight, DST and all
+      h = now.getHours(); mi = now.getMinutes(); se = now.getSeconds();
+      dow = now.getDay(); dom = now.getDate(); mon = now.getMonth(); yr = now.getFullYear();
+      tz = offsetLabel(-now.getTimezoneOffset() / 60);
+    } else {
+      var shifted = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + CONFIG.utcoffset * 3600000);
+      h = shifted.getUTCHours(); mi = shifted.getUTCMinutes(); se = shifted.getUTCSeconds();
+      dow = shifted.getUTCDay(); dom = shifted.getUTCDate();
+      mon = shifted.getUTCMonth(); yr = shifted.getUTCFullYear();
+      tz = offsetLabel(CONFIG.utcoffset);
+    }
+
+    var suffix = '';
     if (!CONFIG.format24h) {
       suffix = h >= 12 ? ' PM' : ' AM';
       h = h % 12 || 12;
     }
-    $('clock-time').textContent = pad(h) + ' ' + pad(local.getUTCMinutes()) + ' ' + pad(local.getUTCSeconds()) + suffix;
-    $('clock-date').textContent = DAYS[local.getUTCDay()] + ', ' + local.getUTCDate() + ' ' +
-      MONTHS[local.getUTCMonth()] + ' ' + local.getUTCFullYear();
-    $('clock-tz').textContent = 'UTC' + (CONFIG.utcoffset >= 0 ? '+' : '') + CONFIG.utcoffset;
+    $('clock-time').textContent = pad(h) + ' ' + pad(mi) + ' ' + pad(se) + suffix;
+    $('clock-date').textContent = DAYS[dow] + ', ' + dom + ' ' + MONTHS[mon] + ' ' + yr;
+    $('clock-tz').textContent = tz;
 
     // keep the staleness readout ticking even between fetches
     if (haveData && Date.now() - lastGoodAt > STALE_AFTER) onFetchFailed();
