@@ -25,6 +25,11 @@
   // out constantly (rate limits, feeder gaps); without this grace window an
   // aircraft only one network can see blinks out every time that one hiccups.
   var CONTACT_TTL = 25000;
+  var ROUTE_API = 'https://api.adsb.lol/api/0/routeset';
+  var ROUTE_CDN = 'https://vrs-standing-data.adsb.lol/routes/';
+  var ROUTE_BATCH = 100;          // the routeset endpoint rejects more than this
+  var ROUTE_CDN_PER_CYCLE = 8;
+  var ROUTE_API_COOLDOWN = 120000;
   // Both cooldowns stay under CONTACT_TTL on purpose: a rested network is
   // retried before the aircraft only it can see age out of the pool.
   var COOLDOWN_RATELIMIT = 20000;
@@ -50,6 +55,10 @@
   // across polls so a single missed reply can't erase anyone.
   var contacts = Object.create(null);
   var providerCooldown = Object.create(null);
+  // callsign -> route verdict, or null once we've asked and found nothing
+  var routeCache = Object.create(null);
+  var routePending = Object.create(null);
+  var routeApiCooldown = 0;
   var lastSources = [];
   var lastGoodAt = 0;
   var haveData = false;
@@ -58,6 +67,7 @@
 
   var LABEL_NEVER = 0, LABEL_HOVER = 1, LABEL_ALWAYS = 2;
   var REVEAL_SWEEP = 1;
+  var FLIGHT_ALL = 0, FLIGHT_DOM = 1, FLIGHT_INT = 2;
 
   var tracks = [];             // pinned targets shown in the TRACKS panel
   var selectedHex = null;
@@ -457,10 +467,21 @@
     ac._emergency = !!((ac.emergency && ac.emergency !== 'none') || EMERGENCY_SQUAWKS[String(ac.squawk || '')]);
     ac._hasPos = typeof ac.lat === 'number' && typeof ac.lon === 'number';
 
+    var route = routeOf(ac);
+    ac._route = route || null;
+    ac._ftype = route ? route.type : 'UNK';
+
     var inRange = ac._alt >= CONFIG.minalt && ac._alt <= CONFIG.maxalt &&
       (ac.gs || 0) >= CONFIG.minspeed && (ac.gs || 0) <= CONFIG.maxspeed;
+
+    // Flights whose route we haven't resolved stay hidden while a specific type
+    // is selected - we can't honestly call them domestic or international.
+    var typeOk = CONFIG.flighttype === FLIGHT_ALL ||
+      (CONFIG.flighttype === FLIGHT_DOM && ac._ftype === 'DOM') ||
+      (CONFIG.flighttype === FLIGHT_INT && ac._ftype === 'INT');
+
     // emergencies are never filtered out - that's the whole point of the row
-    ac._pass = ac._hasPos && (inRange || ac._emergency);
+    ac._pass = ac._hasPos && ((inRange && typeOk) || ac._emergency);
     return ac;
   }
 
@@ -472,6 +493,90 @@
     if (Array.isArray(data.ac)) return data.ac;
     if (Array.isArray(data.aircraft)) return data.aircraft;
     return [];
+  }
+
+  // ---------------------------- flight routes ----------------------------
+  // ADS-B carries no origin/destination, so domestic vs international has to
+  // come from a route database keyed by callsign. adsb.lol resolves a batch in
+  // one POST; the VRS static files are the fallback when that API is unhappy.
+  function routeOf(ac) {
+    var cs = (ac.flight || '').trim();
+    return cs ? routeCache[cs] : null;
+  }
+
+  function classifyRoute(entry) {
+    var airports = (entry && entry._airports) || [];
+    // one airport alone says nothing - we need both ends to judge the route
+    if (airports.length < 2) return null;
+
+    var countries = [];
+    airports.forEach(function (a) {
+      if (a.countryiso2 && countries.indexOf(a.countryiso2) === -1) countries.push(a.countryiso2);
+    });
+    if (!countries.length) return null;
+
+    return {
+      type: countries.length === 1 ? 'DOM' : 'INT',
+      countries: countries,
+      pair: airports.map(function (a) { return a.iata || a.icao || '?'; }).join('→')
+    };
+  }
+
+  function storeRoutes(entries) {
+    var changed = false;
+    entries.forEach(function (e) {
+      if (!e || !e.callsign) return;
+      var cs = e.callsign.trim();
+      delete routePending[cs];
+      // null means "asked and there is nothing" - stops us asking again forever
+      routeCache[cs] = classifyRoute(e);
+      changed = true;
+    });
+    if (changed) render();
+  }
+
+  function refreshRoutes() {
+    var need = [];
+    lastAircraft.forEach(function (ac) {
+      var cs = (ac.flight || '').trim();
+      if (!cs || routeCache[cs] !== undefined || routePending[cs]) return;
+      need.push({ callsign: cs, lat: ac.lat, lng: ac.lon });
+    });
+    if (!need.length) return;
+
+    need = need.slice(0, ROUTE_BATCH);
+    need.forEach(function (p) { routePending[p.callsign] = 1; });
+
+    if (Date.now() < routeApiCooldown) { routesFromCdn(need); return; }
+
+    fetchWithTimeout(ROUTE_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planes: need })
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (list) { storeRoutes(Array.isArray(list) ? list : []); })
+      .catch(function () {
+        routeApiCooldown = Date.now() + ROUTE_API_COOLDOWN;
+        routesFromCdn(need);
+      });
+  }
+
+  // Static per-callsign JSON, CORS-open and cacheable. One request each, so we
+  // trickle rather than fire off dozens at once.
+  function routesFromCdn(need) {
+    need.slice(0, ROUTE_CDN_PER_CYCLE).forEach(function (p) {
+      var cs = p.callsign;
+      fetchWithTimeout(ROUTE_CDN + cs.slice(0, 2) + '/' + cs + '.json', { cache: 'default' })
+        .then(function (res) { return res.ok ? res.json() : null; })
+        .then(function (entry) { storeRoutes([entry || { callsign: cs }]); })
+        .catch(function () { delete routePending[cs]; });
+    });
+    // anything we didn't get to this pass is retried on the next poll
+    need.slice(ROUTE_CDN_PER_CYCLE).forEach(function (p) { delete routePending[p.callsign]; });
   }
 
   // Same aircraft seen by several networks: keep the record with an actual
@@ -525,6 +630,20 @@
     lastGoodAt = Date.now();
     haveData = true;
 
+    if (latencyMs != null) $('hud-latency').innerHTML = latencyMs + '<i>ms</i>';
+    $('hud-source').textContent = sources.length > 1
+      ? sources.length + ' of ' + activeProviderCount() + ' nets'
+      : (sources[0] || '--');
+    setStatus('LIVE', '');
+
+    render();
+    refreshRoutes();
+  }
+
+  // Rebuild the drawn set and the counters from the contact pool. Kept separate
+  // from onData so a filter change or a late route lookup can refresh the screen
+  // without pretending fresh telemetry arrived.
+  function render() {
     var raw = Object.keys(contacts).map(function (k) { return contacts[k]; });
     raw.forEach(classify);
 
@@ -535,16 +654,12 @@
     $('hud-contacts').textContent = rendered.length;
     $('hud-unknowns').textContent = rendered.filter(function (a) { return a._unknown; }).length;
     $('hud-filtered').textContent = withPos.length - rendered.length;
+    $('hud-domestic').textContent = rendered.filter(function (a) { return a._ftype === 'DOM'; }).length;
+    $('hud-intl').textContent = rendered.filter(function (a) { return a._ftype === 'INT'; }).length;
 
     var emergency = rendered.filter(function (a) { return a._emergency; }).length;
     $('hud-emergency').textContent = emergency;
     $('hud-emergency').classList.toggle('active', emergency > 0);
-
-    if (latencyMs != null) $('hud-latency').innerHTML = latencyMs + '<i>ms</i>';
-    $('hud-source').textContent = sources.length > 1
-      ? sources.length + ' of ' + activeProviderCount() + ' nets'
-      : (sources[0] || '--');
-    setStatus('LIVE', '');
 
     refreshTracks();
     if (followMode) followSelected();
@@ -572,7 +687,7 @@
   }
 
   function reFilterFromCache() {
-    if (haveData) onData(lastSources, null);
+    if (haveData) render();
   }
 
   function selectedProviders() {
@@ -612,12 +727,14 @@
     refreshTracks();
   }
 
-  function fetchWithTimeout(url) {
-    if (typeof AbortController === 'undefined') return fetch(url, { cache: 'no-store' });
+  function fetchWithTimeout(url, opts) {
+    opts = opts || {};
+    if (!opts.cache) opts.cache = 'no-store';   // routes pass 'default' to reuse the HTTP cache
+    if (typeof AbortController === 'undefined') return fetch(url, opts);
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, REQUEST_TIMEOUT);
-    return fetch(url, { cache: 'no-store', signal: ctrl.signal })
-      .finally(function () { clearTimeout(timer); });
+    opts.signal = ctrl.signal;
+    return fetch(url, opts).finally(function () { clearTimeout(timer); });
   }
 
   async function fetchOnce() {
@@ -730,6 +847,12 @@
       ['SQUAWK', ac.squawk || '----']
     ];
     if (ac.t) rows.push(['TYPE', ac.t]);
+    if (ac._route) {
+      rows.push(['ROUTE', ac._route.pair]);
+      rows.push(['FLIGHT', ac._route.type === 'DOM'
+        ? 'DOMESTIC ' + ac._route.countries[0]
+        : 'INTL ' + ac._route.countries.join('-')]);
+    }
 
     el.innerHTML =
       '<div class="td-call">' + callsignOf(ac) +
@@ -777,6 +900,7 @@
     tooltip.style.left = e.containerPoint.x + 'px';
     tooltip.style.top = e.containerPoint.y + 'px';
     tooltip.textContent = (ac._unknown ? 'UNKNOWN' : callsignOf(ac)) +
+      (ac._route ? ' · ' + ac._route.pair : '') +
       ' · ' + altLabel(ac) + ' · ' + Math.round(ac.gs || 0) + 'kt';
   }
 
@@ -884,7 +1008,7 @@
     ['latitude', 'longitude', 'radius'].forEach(function (k) {
       onConfigChange(k, onLocationChanged);
     });
-    ['minalt', 'maxalt', 'minspeed', 'maxspeed'].forEach(function (k) {
+    ['minalt', 'maxalt', 'minspeed', 'maxspeed', 'flighttype'].forEach(function (k) {
       onConfigChange(k, reFilterFromCache);
     });
     onConfigChange('sourcemode', function () {

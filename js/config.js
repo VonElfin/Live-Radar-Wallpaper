@@ -19,6 +19,7 @@ var CONFIG = {
   maxalt: 50000,
   minspeed: 0,
   maxspeed: 1300,
+  flighttype: 0,        // 0 = all, 1 = domestic only, 2 = international only
 
   radarspeed: 25,       // RPM
   revealmode: 1,        // 0 = always visible, 1 = lit by the radar sweep
@@ -40,7 +41,7 @@ var CONFIG = {
 var INT_KEYS = {
   utcoffset: 1, minalt: 1, maxalt: 1, minspeed: 1, maxspeed: 1,
   radius: 1, radarspeed: 1, zoomoffset: 1, uiscale: 1, bottommargin: 1,
-  labelmode: 1, revealmode: 1, blippersist: 1, sourcemode: 1
+  labelmode: 1, revealmode: 1, blippersist: 1, sourcemode: 1, flighttype: 1
 };
 
 var CONFIG_LISTENERS = {};

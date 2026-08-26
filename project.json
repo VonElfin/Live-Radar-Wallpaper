@@ -119,6 +119,17 @@
         "min": 0,
         "max": 1300
       },
+      "flighttype": {
+        "order": 305,
+        "text": "Flight Type",
+        "type": "combo",
+        "value": 0,
+        "options": [
+          { "label": "All Flights", "value": 0 },
+          { "label": "Domestic Only", "value": 1 },
+          { "label": "International Only", "value": 2 }
+        ]
+      },
       "headerdisplay": {
         "order": 400,
         "text": "<br><b>- Display -</b>"
