@@ -607,8 +607,6 @@
   }
 
   // ------------------------------- buttons -------------------------------
-  // Wallpaper Engine forwards clicks but not the scroll wheel, so zooming has
-  // to be reachable from on-screen controls.
   function zoomBy(delta) {
     manualView = true;
     map.setZoom(clamp(map.getZoom() + delta, map.getMinZoom(), map.getMaxZoom()));
@@ -668,7 +666,6 @@
     var h, mi, se, dow, dom, mon, yr, tz;
 
     if (CONFIG.usesystemtime) {
-      // read the PC clock straight, DST and all
       h = now.getHours(); mi = now.getMinutes(); se = now.getSeconds();
       dow = now.getDay(); dom = now.getDate(); mon = now.getMonth(); yr = now.getFullYear();
       tz = offsetLabel(-now.getTimezoneOffset() / 60);
@@ -689,7 +686,6 @@
     $('clock-date').textContent = DAYS[dow] + ', ' + dom + ' ' + MONTHS[mon] + ' ' + yr;
     $('clock-tz').textContent = tz;
 
-    // keep the staleness readout ticking even between fetches
     if (haveData && Date.now() - lastGoodAt > STALE_AFTER) onFetchFailed();
   }
 
