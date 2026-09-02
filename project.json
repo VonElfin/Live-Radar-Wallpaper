@@ -1,8 +1,8 @@
 {
   "file": "index.html",
   "type": "web",
-  "title": "ADS-B Live Radar",
-  "description": "Radar aereo ao vivo estilo ATC, alimentado por dados publicos ADS-B. Mostra aeronaves reais perto da localizacao configurada, com varredura de radar, aneis de alcance, HUD de contatos, rastreamento de alvos e relogio. Clique em uma aeronave para focar e acompanhar.",
+  "title": "Live Radar",
+  "description": "Radar aereo ao vivo estilo ATC, alimentado por dados publicos ADS-B de varias redes de voluntarios. Mostra aeronaves reais perto da localizacao configurada, com varredura de radar, aneis de alcance, HUD de contatos, separacao entre voos domesticos e internacionais, rastreamento de alvos e relogio. Clique em uma aeronave para focar e acompanhar.",
   "preview": "preview.jpg",
   "contentrating": "Everyone",
   "tags": [
@@ -33,7 +33,7 @@
         "type": "slider",
         "value": 400,
         "min": 50,
-        "max": 450
+        "max": 1000
       },
       "sourcemode": {
         "order": 104,

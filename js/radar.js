@@ -30,6 +30,11 @@
   var ROUTE_BATCH = 100;          // the routeset endpoint rejects more than this
   var ROUTE_CDN_PER_CYCLE = 8;
   var ROUTE_API_COOLDOWN = 120000;
+  // Every one of these networks caps a point query at 250 nm; 400 nm is a hard
+  // HTTP 400. The range ring can be opened wider than that for framing, but no
+  // aircraft will ever exist beyond this distance.
+  var DATA_MAX_NM = 250;
+  var DATA_MAX_KM = DATA_MAX_NM * 1.852;
   // Both cooldowns stay under CONTACT_TTL on purpose: a rested network is
   // retried before the aircraft only it can see age out of the pool.
   var COOLDOWN_RATELIMIT = 20000;
@@ -37,12 +42,18 @@
   var EMERGENCY_SQUAWKS = { '7500': 1, '7600': 1, '7700': 1 };
   var TRACKS_MAX = 6;
 
-  var TILES = {
-    labels: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    plain: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
-  };
+  // CARTO's free basemaps.cartocdn.com tiles started requiring a signup-gated
+  // API key; without one every tile now renders with an "API KEY REQUIRED"
+  // watermark baked into the image. Esri's Dark Gray Canvas is genuinely free,
+  // no key, no quota - just attribution - so that's the base layer now. It's a
+  // medium gray rather than near-black, which the CSS filter in style.css
+  // corrects. Labels are Esri's separate "Reference" layer (transparent PNG)
+  // so "Map City Labels" can toggle them without reloading the base tiles.
+  var TILE_BASE = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+  var TILE_LABELS = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
+  var TILE_ATTRIBUTION = '&copy; Esri, HERE, Garmin, OpenStreetMap contributors';
 
-  var map, tileLayer, canvas, ctx;
+  var map, tileLayer, labelLayer, canvas, ctx;
   var scale = 1;
   var sweepAngle = 0;
   var lastTs = null;
@@ -211,12 +222,15 @@
   }
 
   function setTileLayer() {
-    if (tileLayer) map.removeLayer(tileLayer);
-    tileLayer = L.tileLayer(CONFIG.maplabels ? TILES.labels : TILES.plain, {
-      subdomains: 'abcd',
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap &copy; CARTO'
-    }).addTo(map);
+    if (!tileLayer) {
+      tileLayer = L.tileLayer(TILE_BASE, { maxZoom: 16, attribution: TILE_ATTRIBUTION }).addTo(map);
+    }
+    if (CONFIG.maplabels && !labelLayer) {
+      labelLayer = L.tileLayer(TILE_LABELS, { maxZoom: 16 }).addTo(map);
+    } else if (!CONFIG.maplabels && labelLayer) {
+      map.removeLayer(labelLayer);
+      labelLayer = null;
+    }
   }
 
   function resizeCanvas() {
@@ -267,6 +281,9 @@
 
     drawSweep(homePt, outerRingPx);
     if (CONFIG.showrings) drawRings(homePt, outerRingPx);
+    if (CONFIG.radius > DATA_MAX_KM + 20) {
+      drawCoverageRing(homePt, outerRingPx * (DATA_MAX_KM / CONFIG.radius));
+    }
     drawHomeMark(homePt);
     drawAircraft(homePt, ts, prevSweep);
 
@@ -285,10 +302,13 @@
     var sweepR = outerRingPx * 1.05;
 
     if (ctx.createConicGradient) {
+      // The conic gradient runs clockwise from the beam, which is the direction
+      // the beam travels - so the wash has to sit at the far end of the sweep
+      // (just counter-clockwise of the line) to read as a trail behind it.
       var grad = ctx.createConicGradient(rad, 0, 0);
-      grad.addColorStop(0, 'rgba(60,255,140,0.32)');
-      grad.addColorStop(0.16, 'rgba(60,255,140,0)');
-      grad.addColorStop(1, 'rgba(60,255,140,0)');
+      grad.addColorStop(0, 'rgba(60,255,140,0)');
+      grad.addColorStop(0.80, 'rgba(60,255,140,0)');
+      grad.addColorStop(1, 'rgba(60,255,140,0.085)');
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(0, 0, sweepR, 0, Math.PI * 2);
@@ -317,6 +337,25 @@
       ctx.arc(homePt.x, homePt.y, outerRingPx * frac, 0, Math.PI * 2);
       ctx.stroke();
     });
+    ctx.restore();
+  }
+
+  // Every provider caps a single point query at DATA_MAX_KM, so past that ring
+  // coverage comes from several overlapping off-centre queries (see
+  // queryPoints()) instead of one clean disc - real, but patchier at the seams.
+  function drawCoverageRing(homePt, r) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,206,61,0.30)';
+    ctx.setLineDash([2 * scale, 5 * scale]);
+    ctx.lineWidth = 1 * scale;
+    ctx.beginPath();
+    ctx.arc(homePt.x, homePt.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.font = (9 * scale).toFixed(1) + 'px Consolas, monospace';
+    ctx.fillStyle = 'rgba(255,206,61,0.45)';
+    ctx.fillText('MULTI-QUERY BEYOND ' + Math.round(DATA_MAX_KM) + 'km', homePt.x + 6 * scale, homePt.y - r - 5 * scale);
     ctx.restore();
   }
 
@@ -737,22 +776,55 @@
     return fetch(url, opts).finally(function () { clearTimeout(timer); });
   }
 
+  // A point+radius query is capped at DATA_MAX_KM by every network, but nothing
+  // stops us asking at several overlapping points to reconstruct a bigger disc.
+  // One offset point per direction, placed so its DATA_MAX_KM circle laps over
+  // its neighbours' - dedupe in ingest() (by hex) collapses anyone seen twice.
+  function queryPoints() {
+    var home = { lat: CONFIG.latitude, lon: CONFIG.longitude, nm: DATA_MAX_NM };
+    if (CONFIG.radius <= DATA_MAX_KM + 20) return [home];
+
+    var ringCount = CONFIG.radius > DATA_MAX_KM * 1.8 ? 8 : 6;
+    // 90% of the theoretical minimum spacing, trading a little reach at the
+    // outer edge for a comfortable overlap margin between neighbouring discs.
+    var offsetKm = (CONFIG.radius - DATA_MAX_KM) * 0.9;
+    var latRad = CONFIG.latitude * Math.PI / 180;
+    var kmPerDegLat = 111.32;
+    var kmPerDegLon = 111.32 * Math.cos(latRad) || 0.01;
+
+    var points = [home];
+    for (var i = 0; i < ringCount; i++) {
+      var theta = (i / ringCount) * 2 * Math.PI;
+      points.push({
+        lat: CONFIG.latitude + (offsetKm * Math.cos(theta)) / kmPerDegLat,
+        lon: CONFIG.longitude + (offsetKm * Math.sin(theta)) / kmPerDegLon,
+        nm: DATA_MAX_NM
+      });
+    }
+    return points;
+  }
+
   async function fetchOnce() {
     var gen = ++fetchGen;
-    var lat = Number(CONFIG.latitude).toFixed(4);
-    var lon = Number(CONFIG.longitude).toFixed(4);
-    var nm = clamp(Math.round(CONFIG.radius / 1.852), 5, 250);
+    var points = queryPoints();
     var t0 = performance.now();
 
-    // All providers in parallel; a slow or dead one costs us nothing but itself.
-    var settled = await Promise.all(activeProviders().map(function (p) {
-      return fetchWithTimeout(p.url(lat, lon, nm))
-        .then(function (res) {
-          if (!res.ok) { benchProvider(p.name, res.status); return null; }
-          return res.json().then(function (data) { return { name: p.name, data: data }; });
-        })
-        .catch(function () { benchProvider(p.name, 0); return null; });
-    }));
+    // Every point against every active provider, all in parallel - a slow or
+    // dead combination costs us nothing but itself.
+    var jobs = [];
+    points.forEach(function (pt) {
+      activeProviders().forEach(function (p) {
+        jobs.push(
+          fetchWithTimeout(p.url(pt.lat.toFixed(4), pt.lon.toFixed(4), pt.nm))
+            .then(function (res) {
+              if (!res.ok) { benchProvider(p.name, res.status); return null; }
+              return res.json().then(function (data) { return { name: p.name, data: data }; });
+            })
+            .catch(function () { benchProvider(p.name, 0); return null; })
+        );
+      });
+    });
+    var settled = await Promise.all(jobs);
 
     // A newer poll (usually a location change) started while we were waiting -
     // its answer is the current one, so drop this now-stale batch.
@@ -767,7 +839,10 @@
   function scheduleFetchLoop() {
     clearTimeout(fetchTimer);
     fetchOnce().finally(function () {
-      fetchTimer = setTimeout(scheduleFetchLoop, FETCH_INTERVAL);
+      // Tiled polling fans out to several points per provider; backing off the
+      // interval keeps the aggregate request rate reasonable when it's active.
+      var interval = CONFIG.radius > DATA_MAX_KM + 20 ? FETCH_INTERVAL * 2 : FETCH_INTERVAL;
+      fetchTimer = setTimeout(scheduleFetchLoop, interval);
     });
   }
 
@@ -989,7 +1064,12 @@
 
   // ------------------------------- config wiring -------------------------------
   function updateStaticHud() {
-    $('hud-range').innerHTML = Math.round(CONFIG.radius) + '<i>km</i>';
+    var r = Math.round(CONFIG.radius);
+    // Past a single query's cap, coverage comes from queryPoints()' overlapping
+    // grid rather than one clean disc - flag that in the readout too.
+    $('hud-range').innerHTML = (r > DATA_MAX_KM + 20)
+      ? r + '<i>km·tiled</i>'
+      : r + '<i>km</i>';
   }
 
   function syncVisibility() {
