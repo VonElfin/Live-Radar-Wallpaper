@@ -1,8 +1,6 @@
 :root {
-  /* --s is recalculated from the viewport by radar.js so the whole HUD keeps
-     its proportions from 720p up to 4K and on tall portrait screens. */
   --s: 1;
-  --bm: 60px;          /* taskbar clearance, user configurable */
+  --bm: 60px;
   --edge: calc(14px * var(--s));
 
   --grn: #37e07a;
@@ -59,7 +57,6 @@ html, body {
   z-index: 400;
 }
 
-/* ---------------- panels ---------------- */
 .panel {
   position: absolute;
   background: var(--panel-bg);
@@ -126,7 +123,6 @@ html, body {
   min-width: calc(180px * var(--s));
 }
 
-/* ---------------- tracks ---------------- */
 #hud-tracks {
   top: var(--edge);
   right: var(--edge);
@@ -192,7 +188,6 @@ html, body {
 .track-item .meta { color: var(--grn-dim); }
 .track-item.lost .cs, .track-item.lost .meta { color: #4a4a4a; }
 
-/* ---------------- clock ---------------- */
 #hud-clock {
   bottom: calc(var(--bm) + 16px * var(--s));
   right: var(--edge);
@@ -221,7 +216,6 @@ html, body {
   margin-top: calc(1px * var(--s));
 }
 
-/* ---------------- buttons (angular tactical style) ---------------- */
 #hud-buttons {
   position: absolute;
   bottom: calc(var(--bm) + 16px * var(--s));
@@ -262,7 +256,6 @@ html, body {
   min-width: calc(34px * var(--s));
 }
 
-/* chamfered corner + left accent bar is what sets these apart from a plain box */
 .tbtn.wide {
   border: 1px solid var(--grn-line);
   clip-path: polygon(
@@ -303,7 +296,6 @@ html, body {
 .tbtn:disabled { opacity: 0.35; cursor: default; }
 .tbtn:disabled:hover { background: rgba(3, 10, 6, 0.82); color: var(--grn); box-shadow: none; }
 
-/* ---------------- transient bits ---------------- */
 #toast {
   position: absolute;
   left: var(--edge);
