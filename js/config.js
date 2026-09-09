@@ -24,6 +24,7 @@ var CONFIG = {
   showrings: true,
   showmap: true,
   maplabels: true,
+  lockmap: false,
 
   autozoom: true,
   zoomoffset: 0,

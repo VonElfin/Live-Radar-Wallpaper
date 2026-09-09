@@ -50,7 +50,7 @@ Todas as opções abaixo ficam disponíveis no painel de propriedades do Wallpap
 | Localização | Latitude, Longitude, Raio (km), Fonte de dados |
 | HUD | Mostrar HUD, Mostrar relógio, Usar hora do PC, Relógio 24h, Offset UTC |
 | Filtros | Altitude mín/máx, Velocidade mín/máx, Tipo de voo (doméstico/internacional) |
-| Exibição | Velocidade do radar (RPM), Modo de revelação dos contatos, Persistência do blip, Modo de rótulos, Vetores, Anéis, Mapa, Rótulos de cidade |
+| Exibição | Velocidade do radar (RPM), Modo de revelação dos contatos, Persistência do blip, Modo de rótulos, Vetores, Anéis, Mapa, Rótulos de cidade, Travar mapa |
 | Layout | Auto zoom, Offset de zoom, Escala da UI, Margem inferior (barra de tarefas), Mostrar botões |
 
 ## Rodando localmente

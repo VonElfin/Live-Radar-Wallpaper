@@ -20,6 +20,7 @@
   var DATA_MAX_KM = DATA_MAX_NM * 1.852;
   var COOLDOWN_RATELIMIT = 20000;
   var COOLDOWN_ERROR = 10000;
+  var TILE_RELOAD_COOLDOWN = 20000;
   var EMERGENCY_SQUAWKS = { '7500': 1, '7600': 1, '7700': 1 };
   var TRACKS_MAX = 6;
 
@@ -28,6 +29,9 @@
   var TILE_ATTRIBUTION = '&copy; Esri, HERE, Garmin, OpenStreetMap contributors';
 
   var map, tileLayer, labelLayer, canvas, ctx;
+  var tilesFailed = false;
+  var wasOffline = false;
+  var lastTileReload = 0;
   var scale = 1;
   var sweepAngle = 0;
   var lastTs = null;
@@ -166,6 +170,8 @@
       if (!manualView) applyHomeView();
     });
 
+    window.addEventListener('online', recoverTiles);
+
     map.on('dragstart', function () { manualView = true; });
     map.on('click', handleMapClick);
     map.on('mousemove', handleMapHover);
@@ -178,13 +184,39 @@
   function setTileLayer() {
     if (!tileLayer) {
       tileLayer = L.tileLayer(TILE_BASE, { maxZoom: 16, attribution: TILE_ATTRIBUTION }).addTo(map);
+      tileLayer.on('tileerror', onTileError);
     }
     if (CONFIG.maplabels && !labelLayer) {
       labelLayer = L.tileLayer(TILE_LABELS, { maxZoom: 16 }).addTo(map);
+      labelLayer.on('tileerror', onTileError);
     } else if (!CONFIG.maplabels && labelLayer) {
       map.removeLayer(labelLayer);
       labelLayer = null;
     }
+  }
+
+  function onTileError() {
+    tilesFailed = true;
+  }
+
+  function recoverTiles() {
+    if (!tilesFailed && !wasOffline) return;
+    var now = Date.now();
+    if (now - lastTileReload < TILE_RELOAD_COOLDOWN) return;
+    lastTileReload = now;
+    tilesFailed = false;
+    wasOffline = false;
+    if (tileLayer) tileLayer.redraw();
+    if (labelLayer) labelLayer.redraw();
+  }
+
+  function applyMapLock() {
+    ['dragging', 'scrollWheelZoom', 'doubleClickZoom', 'boxZoom', 'touchZoom', 'keyboard']
+      .forEach(function (h) {
+        if (!map[h]) return;
+        if (CONFIG.lockmap) map[h].disable();
+        else map[h].enable();
+      });
   }
 
   function resizeCanvas() {
@@ -585,6 +617,7 @@
       : (sources[0] || '--');
     setStatus('LIVE', '');
 
+    recoverTiles();
     render();
     refreshRoutes();
   }
@@ -618,6 +651,7 @@
   }
 
   function onFetchFailed() {
+    wasOffline = true;
     if (!haveData) {
       setStatus('NO SIGNAL', 'down');
       $('hud-latency').innerHTML = '--<i>ms</i>';
@@ -977,6 +1011,7 @@
     });
 
     onConfigChange('maplabels', setTileLayer);
+    onConfigChange('lockmap', applyMapLock);
     onConfigChange('zoomoffset', function () { manualView = false; applyHomeView(); });
     onConfigChange('autozoom', function (v) { if (v) { manualView = false; applyHomeView(); } });
     onConfigChange('uiscale', function () { recomputeScale(); scheduleLayout(); });
@@ -987,6 +1022,7 @@
     recomputeScale();
     applyBottomMargin();
     initMap();
+    applyMapLock();
     wireButtons();
     wireConfig();
     syncVisibility();
