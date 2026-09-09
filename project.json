@@ -2,7 +2,7 @@
   "file": "index.html",
   "type": "web",
   "title": "Live Radar",
-  "description": "Radar aereo ao vivo estilo ATC, alimentado por dados publicos ADS-B de varias redes de voluntarios. Mostra aeronaves reais perto da localizacao configurada, com varredura de radar, aneis de alcance, HUD de contatos, separacao entre voos domesticos e internacionais, rastreamento de alvos e relogio. Clique em uma aeronave para focar e acompanhar.",
+  "description": "Live ATC-style air radar, powered by public ADS-B data from several volunteer receiver networks. Shows real aircraft around your configured location, with a sweeping radar beam, range rings, a contacts HUD, domestic and international flight separation, target tracking and a clock. Click an aircraft to focus and follow it.",
   "preview": "preview.jpg",
   "contentrating": "Everyone",
   "tags": [
