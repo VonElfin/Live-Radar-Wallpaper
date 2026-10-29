@@ -24,9 +24,13 @@
   var EMERGENCY_SQUAWKS = { '7500': 1, '7600': 1, '7700': 1 };
   var TRACKS_MAX = 6;
 
-  var TILE_BASE = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}';
-  var TILE_LABELS = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
-  var TILE_ATTRIBUTION = '&copy; Esri, HERE, Garmin, OpenStreetMap contributors';
+  // blankTile=false makes Esri answer 404 instead of a "Map data not yet available" image,
+  // so missing tiles can be swapped for the CARTO equivalent.
+  var TILE_BASE = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}?blankTile=false';
+  var TILE_LABELS = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}?blankTile=false';
+  var FALLBACK_BASE = 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png';
+  var FALLBACK_LABELS = 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png';
+  var TILE_ATTRIBUTION = '&copy; Esri, HERE, Garmin, OpenStreetMap contributors, &copy; CARTO';
 
   var map, tileLayer, labelLayer, canvas, ctx;
   var tilesFailed = false;
@@ -163,6 +167,8 @@
     resizeCanvas();
 
     window.addEventListener('resize', function () {
+      // Monitors can report 0x0 while the PC goes to sleep; wait for the real size.
+      if (!window.innerWidth || !window.innerHeight) return;
       recomputeScale();
       resizeCanvas();
       scheduleLayout();
@@ -184,19 +190,28 @@
   function setTileLayer() {
     if (!tileLayer) {
       tileLayer = L.tileLayer(TILE_BASE, { maxZoom: 16, attribution: TILE_ATTRIBUTION }).addTo(map);
-      tileLayer.on('tileerror', onTileError);
+      tileLayer.on('tileerror', function (e) { onTileError(e, FALLBACK_BASE); });
     }
     if (CONFIG.maplabels && !labelLayer) {
       labelLayer = L.tileLayer(TILE_LABELS, { maxZoom: 16 }).addTo(map);
-      labelLayer.on('tileerror', onTileError);
+      labelLayer.on('tileerror', function (e) { onTileError(e, FALLBACK_LABELS); });
     } else if (!CONFIG.maplabels && labelLayer) {
       map.removeLayer(labelLayer);
       labelLayer = null;
     }
   }
 
-  function onTileError() {
-    tilesFailed = true;
+  function onTileError(e, fallback) {
+    if (e.tile.dataset.fallback) { tilesFailed = true; return; }
+    var c = e.coords, n = 1 << c.z;
+    e.tile.dataset.fallback = '1';
+    // Leaflet keeps the tile's onload/onerror bound, so the new src finishes the tile normally.
+    e.tile.src = L.Util.template(fallback, {
+      s: 'abcd'[Math.abs(c.x + c.y) % 4],
+      z: c.z,
+      x: ((c.x % n) + n) % n,
+      y: c.y
+    });
   }
 
   function recoverTiles() {

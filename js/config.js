@@ -47,7 +47,31 @@ function fireConfigChange(key) {
   (CONFIG_LISTENERS[key] || []).forEach(function (fn) { fn(CONFIG[key]); });
 }
 
-function applyProps(properties) {
+var DEFAULTS = JSON.parse(JSON.stringify(CONFIG));
+var RANGES = { latitude: [-90, 90], longitude: [-180, 180] };
+
+// Wallpaper Engine sometimes skips applyUserProperties after sleep/boot, or
+// replays the project.json defaults, so keep our own copy of what was applied.
+var STORAGE_KEY = 'liveradar.props.v1';
+var SAVED = loadSaved();
+var firstApply = true;
+
+function loadSaved() {
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) {}
+  Object.keys(saved).forEach(function (key) {
+    if (key in CONFIG && typeof saved[key] === typeof CONFIG[key]) CONFIG[key] = saved[key];
+    else delete saved[key];
+  });
+  return saved;
+}
+
+function persist(key, val) {
+  SAVED[key] = val;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(SAVED)); } catch (e) {}
+}
+
+function applyProps(properties, isStartup) {
   Object.keys(properties).forEach(function (key) {
     if (!(key in CONFIG)) return;
     var prop = properties[key];
@@ -61,8 +85,13 @@ function applyProps(properties) {
       val = parseFloat(String(raw).replace(',', '.'));
       if (!isFinite(val)) return;
       if (INT_KEYS[key]) val = Math.round(val);
+      if (RANGES[key] && (val < RANGES[key][0] || val > RANGES[key][1])) return;
     }
 
+    if (isStartup && RANGES[key] && val === DEFAULTS[key] &&
+        key in SAVED && SAVED[key] !== val) return;
+
+    persist(key, val);
     if (CONFIG[key] === val) return;
     CONFIG[key] = val;
     fireConfigChange(key);
@@ -71,6 +100,7 @@ function applyProps(properties) {
 
 window.wallpaperPropertyListener = {
   applyUserProperties: function (properties) {
-    applyProps(properties);
+    applyProps(properties, firstApply);
+    firstApply = false;
   }
 };
